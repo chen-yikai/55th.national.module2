@@ -11,6 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.io.File
+import java.util.Currency
 import java.util.UUID
 
 data class Note(
@@ -37,9 +38,21 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
     private val file = File(context.getExternalFilesDir(null), "data.json")
     val notes = mutableStateListOf<Note>()
     var newBlockId by mutableStateOf("")
+    
+    private val undoStack = mutableStateListOf<Note>()
+    private val redoStack = mutableStateListOf<Note>()
+    private val maxHistorySize = 50
+    
+    val canUndo: Boolean get() = undoStack.isNotEmpty()
+    val canRedo: Boolean get() = redoStack.isNotEmpty()
+
+    fun getIndexOfNote(noteId:String):Int{
+        val noteIndex = notes.indexOfFirst { it.id == noteId }
+        return noteIndex
+    }
 
     fun updateDate(noteId: String) {
-        val noteIndex = notes.indexOfFirst { it.id == noteId }
+        val noteIndex = getIndexOfNote(noteId)
         notes[noteIndex] = notes[noteIndex].copy(updatedAt = System.currentTimeMillis())
     }
 
@@ -55,6 +68,7 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
     }
 
     fun newBlock(id: String, type: BlockType, value1: String = "") {
+        saveSnapshot(id)
         val newId = UUID.randomUUID().toString()
         val noteIndex = notes.indexOfFirst { it.id == id }
         val currentNote = notes[noteIndex]
@@ -81,6 +95,7 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
     }
 
     fun increaseBlockIndent(noteId: String, blockId: String) {
+        saveSnapshot(noteId)
         val noteIndex = notes.indexOfFirst { it.id == noteId }
         val blockIndex = notes[noteIndex].content.indexOfFirst { it.id == blockId }
         if (blockIndex == -1) return
@@ -97,6 +112,7 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
     }
 
     fun decreaseBlockIndent(noteId: String, blockId: String) {
+        saveSnapshot(noteId)
         val noteIndex = notes.indexOfFirst { it.id == noteId }
         val blockIndex = notes[noteIndex].content.indexOfFirst { it.id == blockId }
         val currentBlock = notes[noteIndex].content[blockIndex]
@@ -134,6 +150,7 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
     }
 
     fun deleteBlock(noteId: String, blockId: String) {
+        saveSnapshot(noteId)
         val noteIndex = notes.indexOfFirst { it.id == noteId }
         val blockIndex = notes[noteIndex].content.indexOfFirst { it.id == blockId }
         val newContent = notes[noteIndex].content.toMutableList()
@@ -155,12 +172,61 @@ class DataModel(private val context: Application) : AndroidViewModel(context) {
         get()
     }
 
-    fun get() {
+    private fun get() {
         notes.clear()
         notes.addAll(Gson().fromJson(file.readText(), object : TypeToken<List<Note>>() {}.type))
     }
 
-    fun write() {
+    private fun write() {
         file.writeText(Gson().toJson(notes))
+    }
+    
+    fun saveSnapshot(noteId: String) {
+        val noteIndex = getIndexOfNote(noteId)
+        if (noteIndex != -1) {
+            val currentNote = notes[noteIndex].copy()
+            undoStack.add(currentNote)
+            
+            redoStack.clear()
+            
+            if (undoStack.size > maxHistorySize) {
+                undoStack.removeAt(0)
+            }
+        }
+    }
+    
+    fun undo(noteId: String): Boolean {
+        if (!canUndo) return false
+        
+        val noteIndex = getIndexOfNote(noteId)
+        val currentNote = notes[noteIndex].copy()
+        redoStack.add(currentNote)
+        
+        val previousNote = undoStack.removeAt(undoStack.size - 1)
+        notes[noteIndex] = previousNote
+        
+        write()
+        
+        return true
+    }
+    
+    fun redo(noteId: String): Boolean {
+        if (!canRedo) return false
+        
+        val noteIndex = getIndexOfNote(noteId)
+        val currentNote = notes[noteIndex].copy()
+        undoStack.add(currentNote)
+
+        val nextNote = redoStack.removeAt(redoStack.size - 1)
+        notes[noteIndex] = nextNote
+
+        write()
+
+        return true
+    }
+    
+    fun clearHistory() {
+        undoStack.clear()
+        redoStack.clear()
     }
 }

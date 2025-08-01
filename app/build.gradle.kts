@@ -11,7 +11,7 @@ android {
 
     defaultConfig {
         applicationId = "dev.eliaschen.national.module2"
-        minSdk = 34
+        minSdk = 35
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"

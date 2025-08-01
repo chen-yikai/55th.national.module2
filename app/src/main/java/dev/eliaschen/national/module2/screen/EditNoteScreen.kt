@@ -74,6 +74,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -84,6 +85,8 @@ import dev.eliaschen.national.module2.LocalDataModel
 import dev.eliaschen.national.module2.LocalNavController
 import dev.eliaschen.national.module2.R
 import dev.eliaschen.national.module2.model.BlockType
+import dev.eliaschen.national.module2.model.ContentBlock
+import dev.eliaschen.national.module2.model.Note
 import kotlinx.coroutines.delay
 
 @OptIn(
@@ -124,6 +127,11 @@ fun EditNoteScreen() {
                 Log.e("EditNoteScreen", e.toString())
             }
         }
+    }
+
+    LaunchedEffect(id) {
+        dataModel.clearHistory()
+        dataModel.saveSnapshot(id)
     }
 
     if (showDeleteDialog) DoubleCheckDialog(dismiss = { showDeleteDialog = false }) {
@@ -183,8 +191,18 @@ fun EditNoteScreen() {
                                 ) {
                                     dataModel.increaseBlockIndent(id, currentFocus)
                                 }
-                                ToolKitButton(R.drawable.undo) { }
-                                ToolKitButton(R.drawable.redo) { }
+                                ToolKitButton(
+                                    R.drawable.undo,
+                                    enable = dataModel.canUndo
+                                ) {
+                                    dataModel.undo(id)
+                                }
+                                ToolKitButton(
+                                    R.drawable.redo,
+                                    enable = dataModel.canRedo
+                                ) {
+                                    dataModel.redo(id)
+                                }
                                 ToolKitButton(R.drawable.delete) {
                                     if (currentFocus.isNotEmpty()) {
                                         dataModel.deleteBlock(
@@ -419,7 +437,8 @@ fun EditNoteScreen() {
                             .height(200.dp)
                             .clickable {
                                 dataModel.newBlock(id, BlockType.Text)
-                            })
+                            },
+                    )
                 }
             }
         }

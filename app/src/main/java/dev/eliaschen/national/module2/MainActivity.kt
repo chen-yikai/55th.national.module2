@@ -4,6 +4,7 @@ import android.app.LocaleConfig
 import android.os.Bundle
 import android.provider.ContactsContract.Data
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +46,13 @@ class MainActivity : ComponentActivity() {
                     LocalDataModel provides data,
                     LocalConfig provides config
                 ) {
+                    BackHandler {
+                        if(nav.navStack.size > 0){
+                            nav.pop()
+                        }else{
+                            finish()
+                        }
+                    }
                     Surface {
                         when (nav.currentNav) {
                             Screen.AllNote -> AllNoteScreen()
