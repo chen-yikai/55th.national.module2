@@ -1,12 +1,15 @@
 package dev.eliaschen.national.module2.screen
 
+import android.app.Activity
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.provider.MediaStore
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -16,6 +19,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
@@ -69,6 +73,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeNestedScroll
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -76,11 +82,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
+import androidx.core.net.toUri
 import dev.eliaschen.national.module2.LocalDataModel
 import dev.eliaschen.national.module2.LocalNavController
 import dev.eliaschen.national.module2.R
@@ -88,12 +99,15 @@ import dev.eliaschen.national.module2.model.BlockType
 import dev.eliaschen.national.module2.model.ContentBlock
 import dev.eliaschen.national.module2.model.Note
 import kotlinx.coroutines.delay
+import java.io.File
 
 @OptIn(
     ExperimentalFoundationApi::class, ExperimentalLayoutApi::class
 )
 @Composable
 fun EditNoteScreen() {
+    val context = LocalContext.current
+    val density = LocalDensity.current
     val nav = LocalNavController.current
     val dataModel = LocalDataModel.current
     val id = nav.noteId
@@ -113,21 +127,40 @@ fun EditNoteScreen() {
     val blocksFocusRequesters = remember { mutableStateMapOf<String, FocusRequester>() }
     var currentFocus by remember { mutableStateOf("") }
 
-    val context = LocalContext.current
-    val fileLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri ->
-        uri?.let {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-                dataModel.newBlock(id, BlockType.Image, uri.toString())
-            } catch (e: Exception) {
-                Log.e("EditNoteScreen", e.toString())
+    val cameraCaptureUri = FileProvider.getUriForFile(
+        context,
+        "${context.packageName}.provider",
+        File(context.getExternalFilesDir("image"), "image_${System.currentTimeMillis()}.png")
+    )
+    val mediaIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+        type = "image/*"
+    }
+    val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+        putExtra(MediaStore.EXTRA_OUTPUT, cameraCaptureUri)
+        addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+    }
+    val mediaChooserIntent = Intent.createChooser(mediaIntent, "選擇圖片").apply {
+        putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
+    }
+    val mediaChooserLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                if (result.data?.data != null) {
+                    val imageFile = File(
+                        context.getExternalFilesDir("image"),
+                        "image_${System.currentTimeMillis()}.png"
+                    )
+                    context.contentResolver.openInputStream(result.data?.data!!)?.use { input ->
+                        imageFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    dataModel.newBlock(id, BlockType.Image, imageFile.toUri().toString())
+                }else{
+                    dataModel.newBlock(id, BlockType.Image, cameraCaptureUri.toString())
+                }
             }
         }
-    }
 
     LaunchedEffect(id) {
         dataModel.clearHistory()
@@ -154,79 +187,77 @@ fun EditNoteScreen() {
         }
 
         Scaffold(bottomBar = {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                AnimatedVisibility(WindowInsets.isImeVisible) {
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .imePadding(), shape = RectangleShape
-                    ) {
-                        LazyRow(modifier = Modifier.padding(horizontal = 10.dp)) {
-                            item {
-                                ToolKitButton(R.drawable.text_note) {
-                                    dataModel.newBlock(id, BlockType.Text)
-                                }
-                                ToolKitButton(R.drawable.list_note) {
-                                    dataModel.newBlock(id, BlockType.List)
-                                }
-                                ToolKitButton(R.drawable.check_note) {
-                                    dataModel.newBlock(id, BlockType.Todo)
-                                }
-                                ToolKitButton(R.drawable.image_note) {
-                                    fileLauncher.launch(
-                                        PickVisualMediaRequest(
-                                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                                        )
+            AnimatedVisibility(WindowInsets.isImeVisible) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .imePadding(),
+                    shape = RectangleShape
+                ) {
+                    LazyRow(modifier = Modifier.padding(horizontal = 10.dp)) {
+                        item {
+                            ToolKitButton(R.drawable.text_note) {
+                                dataModel.newBlock(id, BlockType.Text)
+                            }
+                            ToolKitButton(R.drawable.list_note) {
+                                dataModel.newBlock(id, BlockType.List)
+                            }
+                            ToolKitButton(R.drawable.check_note) {
+                                dataModel.newBlock(id, BlockType.Todo)
+                            }
+                            ToolKitButton(R.drawable.image_note) {
+                                mediaChooserLauncher.launch(mediaChooserIntent)
+                            }
+                            ToolKitButton(
+                                R.drawable.decrease_indent,
+                                dataModel.getTypeOf(id, currentFocus) != BlockType.Image
+                            ) {
+                                dataModel.decreaseBlockIndent(id, currentFocus)
+                            }
+                            ToolKitButton(
+                                R.drawable.increase_indent,
+                                dataModel.getTypeOf(id, currentFocus) != BlockType.Image
+                            ) {
+                                dataModel.increaseBlockIndent(id, currentFocus)
+                            }
+                            ToolKitButton(
+                                R.drawable.undo,
+                                enable = dataModel.canUndo
+                            ) {
+                                dataModel.undo(id)
+                            }
+                            ToolKitButton(
+                                R.drawable.redo,
+                                enable = dataModel.canRedo
+                            ) {
+                                dataModel.redo(id)
+                            }
+                            ToolKitButton(R.drawable.delete) {
+                                if (currentFocus.isNotEmpty()) {
+                                    dataModel.deleteBlock(
+                                        id, currentFocus
                                     )
-                                }
-                                ToolKitButton(
-                                    R.drawable.decrease_indent,
-                                    dataModel.getTypeOf(id, currentFocus) != BlockType.Image
-                                ) {
-                                    dataModel.decreaseBlockIndent(id, currentFocus)
-                                }
-                                ToolKitButton(
-                                    R.drawable.increase_indent,
-                                    dataModel.getTypeOf(id, currentFocus) != BlockType.Image
-                                ) {
-                                    dataModel.increaseBlockIndent(id, currentFocus)
-                                }
-                                ToolKitButton(
-                                    R.drawable.undo,
-                                    enable = dataModel.canUndo
-                                ) {
-                                    dataModel.undo(id)
-                                }
-                                ToolKitButton(
-                                    R.drawable.redo,
-                                    enable = dataModel.canRedo
-                                ) {
-                                    dataModel.redo(id)
-                                }
-                                ToolKitButton(R.drawable.delete) {
-                                    if (currentFocus.isNotEmpty()) {
-                                        dataModel.deleteBlock(
-                                            id, currentFocus
-                                        )
-                                        keyboardController?.hide()
-                                        focusManager.clearFocus()
-                                        currentFocus = ""
-                                    }
-                                }
-                                ToolKitButton(R.drawable.hide_keyboard) {
                                     keyboardController?.hide()
                                     focusManager.clearFocus()
                                     currentFocus = ""
                                 }
                             }
+                            ToolKitButton(R.drawable.hide_keyboard) {
+                                keyboardController?.hide()
+                                focusManager.clearFocus()
+                                currentFocus = ""
+                            }
                         }
                     }
                 }
             }
+
         }) { innerPadding ->
             LazyColumn(
                 contentPadding = PaddingValues(bottom = innerPadding.calculateBottomPadding()),
-                modifier = Modifier.statusBarsPadding()
+                modifier = Modifier
+                    .imeNestedScroll()
+                    .statusBarsPadding()
             ) {
                 stickyHeader {
                     Column(
